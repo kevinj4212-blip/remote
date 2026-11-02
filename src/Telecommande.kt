@@ -3,6 +3,8 @@ package com.exemple.telecommande
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.ValueCallback
@@ -132,8 +134,26 @@ object Adb {
     var connected by mutableStateOf(false)
     var apps by mutableStateOf(emptyList<String>())
 
+    private var appCtx: Context? = null
+
+    // force les échanges à passer par le Wi-Fi (évite les erreurs quand la 4G est active aussi)
+    fun bindWifi() {
+        try {
+            val cm = appCtx?.getSystemService(ConnectivityManager::class.java) ?: return
+            for (n in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(n)
+                if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    cm.bindProcessToNetwork(n)
+                    return
+                }
+            }
+        } catch (e: Exception) { }
+    }
+
     // la bibliothèque range sa clé ADB dans « user.home »
     fun prepare(ctx: Context) {
+        appCtx = ctx.applicationContext
+        bindWifi()
         val home = File(ctx.filesDir, "adbhome")
         File(home, ".android").mkdirs()
         System.setProperty("user.home", home.absolutePath)
@@ -141,6 +161,7 @@ object Adb {
 
     private fun open(host: String, port: Int): Dadb {
         close()
+        bindWifi()
         val d = Dadb.create(host, port)
         conn = d
         return d
@@ -524,6 +545,10 @@ fun StatusChip(host: String, port: Int) {
         }
         if (Adb.detail.isNotEmpty()) {
             Text(Adb.detail, color = Color(0xFFFF8A80), fontSize = 12.sp, textAlign = TextAlign.Center)
+            Text(
+                "Vérifie : télé allumée • même Wi-Fi • bonne IP (Menu > Photos et citations sur la télé) • débogage ADB activé. Touche ici pour réessayer.",
+                color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -640,7 +665,8 @@ fun WebTab(host: String, pin: String) {
                         ): Boolean {
                             pending?.onReceiveValue(null)
                             pending = callback
-                            picker.launch("image/*")
+                            val kind = params.acceptTypes.firstOrNull()?.takeIf { it.isNotBlank() } ?: "*/*"
+                            picker.launch(kind)
                             return true
                         }
                     }
